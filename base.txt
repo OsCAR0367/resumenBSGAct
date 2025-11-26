@@ -1,0 +1,82 @@
+
+Table ia.T_ProcesamientoSesionOnline {
+  Id int [pk, increment]
+  IdPEspecificoSesion int
+  Sesion nvarchar(100)
+
+
+  PorcentajeFidelidad int
+  Estado bit
+  UsuarioCreacion varchar(50) [not null]
+  UsuarioModificacion varchar(50)
+  FechaCreacion datetime [not null, default: `getdate()`]
+  FechaModificacion datetime
+  RowVersion timestamp [not null]
+}
+
+Table ia.T_DetalleProcesamientoSesionOnline {
+  Id int [pk, increment]
+  IdProcesamientoSesionOnline int [not null]
+  
+  IdEtapaProcesamientoSesion int [not null]
+  IdEstadoProcesamientoSesion int [not null]
+  Resultado nvarchar(max)
+  Estado bit [default: 1]
+  NmErrores int
+  UsuarioCreacion varchar(50) [not null]
+  UsuarioModificacion varchar(50)
+  FechaCreacion datetime [not null, default: `getdate()`]
+  FechaModificacion datetime
+  RowVersion timestamp [not null]
+}
+
+Table ia.T_EtapaProcesamientoSesion {
+  Id int [pk, increment]
+  Nombre varchar(50) [not null, note: 'SeparacionVideo, TranscripcionAudio, Resumen']
+  Descripcion varchar(255)
+  Estado int [default: 1]
+
+  UsuarioCreacion varchar(50) [not null]
+  UsuarioModificacion varchar(50)
+  FechaCreacion datetime [not null, default: `getdate()`]
+  FechaModificacion datetime
+  RowVersion timestamp [not null]
+}
+
+Table ia.T_EstadoProcesamientoSesion {
+  Id int [pk, increment]
+  Nombre varchar(50) [not null, note: 'Pendiente, En Proceso, Completado, Error']
+  Descripcion varchar(255)
+  Estado int [default: 1]
+  
+  UsuarioCreacion varchar(50) [not null]
+  UsuarioModificacion varchar(50)
+  FechaCreacion datetime [not null, default: `getdate()`]
+  FechaModificacion datetime
+  RowVersion timestamp [not null]
+}
+
+Table ia.T_ProcesamientoTipoGenerar {
+  Id int [pk, increment]
+  IdProcesamientoSesionOnline int [not null]
+  IdResumenGrabacionOnline int 
+  RegistroUrl nvarchar(max)
+  Estado bit [default: 1]
+  UsuarioCreacion varchar(50) [not null]
+  UsuarioModificacion varchar(50)
+  FechaCreacion datetime [not null, default: `getdate()`]
+  FechaModificacion datetime
+  RowVersion timestamp [not null]
+}
+
+// Relación con la tabla padre que definimos antes
+Ref: ia.T_ProcesamientoSesionOnline.Id < ia.T_ProcesamientoTipoGenerar.IdProcesamientoSesionOnline
+Ref: ia.T_ProcesamientoSesionOnline.Id < ia.T_DetalleProcesamientoSesionOnline.IdProcesamientoSesionOnline
+Ref: ia.T_EtapaProcesamientoSesion.Id < ia.T_DetalleProcesamientoSesionOnline.IdEtapaProcesamientoSesion
+Ref: ia.T_EstadoProcesamientoSesion.Id < ia.T_DetalleProcesamientoSesionOnline.IdEstadoProcesamientoSesion
+
+        EXEC ia.SP_TProcesamientoTipoGenerar_ActualizarExtraccionAudio
+            @Id = :id,
+            @SeparacionVideo = :sepVideo,
+            @AudioVideo = :audioPath
+    """)
