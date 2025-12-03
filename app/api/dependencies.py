@@ -1,4 +1,3 @@
-from sqlalchemy.orm import Session
 from app.infrastructure.database.connection_sqlserver import SessionLocal
 
 

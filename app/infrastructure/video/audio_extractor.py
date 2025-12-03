@@ -1,165 +1,91 @@
+import asyncio
 import logging
-import subprocess
 from pathlib import Path
 import re
+import os
 
-# Get a logger for this module
+# Logger específico para infraestructura
 logger = logging.getLogger(__name__)
 
-
 class AudioExtractionError(Exception):
-    """Raised when audio extraction fails."""
+    """Excepción personalizada para fallos en la extracción de audio."""
     pass
 
-
-def _validate_paths(video_path: Path, audio_output_path: Path) -> None:
-    """Ensure paths exist and the destination folder is ready."""
-    if not video_path.exists():
-        raise FileNotFoundError(f"Video file not found: {video_path}")
-    if not video_path.is_file():
-        raise IsADirectoryError(f"Video path is not a file: {video_path}")
-
-    # This is a safe operation, so logging isn't strictly necessary unless debugging.
-    audio_output_path.parent.mkdir(parents=True, exist_ok=True)
-
-
-def extract_audio_to_memory(video_path: str) -> bytes:
+async def extract_audio_async(video_path: str, output_directory: str = None) -> str:
     """
-    Extracts audio from a video, converts it to a 32kbps mono MP3, and
-    returns the result as a bytes object without writing to disk.
-    """
-    logger.info("Starting IN-MEMORY audio extraction for video: %s", video_path)
-    
-    if not Path(video_path).exists():
-        raise FileNotFoundError(f"Video file not found: {video_path}")
+    Extrae el audio de un video de forma asíncrona utilizando FFmpeg.
+    No bloquea el Event Loop de Python.
 
-    try:
-        # Command to extract the audio and pipe it as uncompressed WAV to stdout.
-        # WAV is a robust format for piping between processes.
-        extract_command = [
-            'ffmpeg',
-            '-i', video_path,
-            '-vn',              # No video
-            '-f', 'wav',        # Output raw WAV format to the pipe
-            '-'                 # Pipe to stdout
-        ]
-
-        # Command to read from stdin, convert to MP3 with desired settings, and pipe to stdout.
-        convert_command = [
-            'ffmpeg',
-            '-i', '-',          # Read from stdin
-            '-ac', '1',         # Mono
-            '-ar', '16000',     # 16kHz sample rate
-            '-c:a', 'libmp3lame', # MP3 encoder
-            '-b:a', '32k',      # 32kbps bitrate
-            '-f', 'mp3',        # Output MP3 format
-            '-'                 # Pipe to stdout
-        ]
-
-        # Start the extraction process
-        extract_process = subprocess.Popen(extract_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        
-        # Pipe the output of the extraction process into the conversion process
-        convert_process = subprocess.Popen(convert_command, stdin=extract_process.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-        # Allow extract_process to receive a SIGPIPE if convert_process exits.
-        extract_process.stdout.close()
-
-        # Capture the final MP3 data and any errors
-        mp3_data, stderr_convert = convert_process.communicate()
-        _, stderr_extract = extract_process.communicate() # get any errors from first process
-
-        if extract_process.returncode != 0:
-            raise AudioExtractionError(f"FFMPEG (extract) failed: {stderr_extract.decode()}")
-        if convert_process.returncode != 0:
-            raise AudioExtractionError(f"FFMPEG (convert) failed: {stderr_convert.decode()}")
-
-        logger.info("Successfully extracted and converted audio in-memory. Size: %.2f KB", len(mp3_data) / 1024)
-        return mp3_data
-
-    except FileNotFoundError:
-        logger.error("FFMPEG not found. Ensure it is installed and in your system's PATH.")
-        raise AudioExtractionError("FFMPEG executable not found.")
-    except Exception as e:
-        logger.error("An unexpected error occurred during in-memory audio extraction: %s", e, exc_info=True)
-        raise AudioExtractionError(f"Failed to extract audio from {video_path}") from e
-
-
-def extract_audio(video_path: str, audio_output_path: str | None = None) -> str:
-    """
-    Extracts and re-encodes the audio track from a video into a 32 kbps mono MP3.
-    
     Args:
-        video_path: Full path to the source video file.
-        audio_output_path: Target path for the MP3 file. Defaults to a sanitized name
-                           in the same directory.
-    
+        video_path (str): Ruta absoluta del archivo de video.
+        output_directory (str, optional): Carpeta donde guardar el audio. 
+                                          Si es None, usa la misma del video.
+
     Returns:
-        Absolute path to the extracted MP3 file.
-    
-    Raises:
-        AudioExtractionError: When ffmpeg fails or paths are invalid.
+        str: Ruta absoluta del archivo de audio generado (.mp3).
     """
-    logger.info("Starting audio extraction process for video: %s", video_path)
+    video_p = Path(video_path)
+
+    if not video_p.exists():
+        raise FileNotFoundError(f"Video no encontrado: {video_path}")
+
+    # 1. Definir ruta de salida
+    if output_directory:
+        # Asegurar que el directorio existe (safe síncrono porque es rápido)
+        os.makedirs(output_directory, exist_ok=True)
+        # Limpiar nombre de archivo
+        safe_stem = re.sub(r"[^\w.-]+", "_", video_p.stem)
+        audio_p = Path(output_directory) / f"{safe_stem}.mp3"
+    else:
+        # Por defecto en la misma carpeta del video
+        safe_stem = re.sub(r"[^\w.-]+", "_", video_p.stem)
+        audio_p = video_p.parent / f"{safe_stem}.mp3"
+
+    output_path_str = str(audio_p)
     
+    logger.info(f"Iniciando extracción asíncrona: {video_p.name} -> {audio_p.name}")
+
+    # 2. Construir comando FFmpeg
+    # -y: Sobrescribir sin preguntar
+    # -vn: No video
+    # -ac 1: Mono
+    # -ar 16000: 16kHz
+    # -b:a 32k: Bitrate ligero
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i", str(video_p),
+        "-vn",
+        "-ac", "1",
+        "-ar", "16000",
+        "-c:a", "libmp3lame",
+        "-b:a", "32k",
+        "-f", "mp3",
+        output_path_str
+    ]
+
     try:
-        # 1) Derive default output path and validate
-        if audio_output_path is None:
-            vp = Path(video_path)
-            # Sanitize the filename stem to prevent issues
-            safe_stem = re.sub(r"[^\w.-]+", "_", vp.stem)
-            audio_output_path = str(vp.parent / f"{safe_stem}.mp3")
-            logger.info("No output path provided. Derived path: %s", audio_output_path)
-        
-        video_p, audio_p = Path(video_path), Path(audio_output_path)
-        _validate_paths(video_p, audio_p)
-
-        # 2) Construct the ffmpeg command
-        cmd = [
-            "ffmpeg",
-            "-y",                   # Overwrite output file without asking
-            "-i", str(video_p),     # Input video file
-            "-vn",                  # No video output
-            "-ac", "1",             # Set audio to 1 channel (mono)
-            "-ar", "16000",         # Set audio sample rate to 16 kHz
-            "-c:a", "libmp3lame",   # Use MP3 encoder
-            "-b:a", "32k",          # Set audio bitrate to 32 kbps
-            "-f", "mp3",            # Force MP3 container format
-            str(audio_p)            # Output audio file
-        ]
-        
-        # This is the most critical log for debugging!
-        logger.info("Executing ffmpeg command: %s", ' '.join(cmd))
-
-        # 3) Run the command
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-
-        # 4) Check for errors
-        if result.returncode != 0:
-            # Log the detailed error from ffmpeg before raising our own exception
-            error_details = (
-                f"ffmpeg process failed for '{video_path}' with exit code {result.returncode}.\n"
-                f"Stderr: {result.stderr.strip()}"
-            )
-            logger.error(error_details)
-            raise AudioExtractionError(error_details)
-
-        final_path = str(audio_p)
-        logger.info("Successfully extracted audio to: %s", final_path)
-        return final_path
-
-    except (FileNotFoundError, IsADirectoryError, AudioExtractionError) as exc:
-        # Re-raise known errors directly after logging
-        logger.error("A predictable error occurred during audio extraction: %s", exc)
-        raise
-    except Exception as exc:
-        # Catch any other unexpected exception
-        logger.error(
-            "An unexpected error occurred during audio extraction for '%s': %s",
-            video_path, exc, exc_info=True
+        # 3. Ejecutar subproceso de forma NO BLOQUEANTE
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
         )
-        raise AudioExtractionError(f"Failed to extract audio from {video_path}") from exc
 
+        # Esperar a que termine sin detener el servidor
+        stdout, stderr = await process.communicate()
 
-# Alias para mantener compatibilidad
-extract_audio_from_video = extract_audio
+        # 4. Verificar resultado
+        if process.returncode != 0:
+            error_msg = stderr.decode().strip()
+            logger.error(f"FFmpeg falló con código {process.returncode}: {error_msg}")
+            raise AudioExtractionError(f"Error en FFmpeg: {error_msg}")
+
+        logger.info(f"Extracción completada exitosamente: {output_path_str}")
+        return output_path_str
+
+    except AudioExtractionError:
+        raise
+    except Exception as e:
+        logger.error(f"Error inesperado en extracción asíncrona: {str(e)}")
+        raise AudioExtractionError(f"Fallo sistémico al extraer audio: {str(e)}")
