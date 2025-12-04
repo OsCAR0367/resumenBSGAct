@@ -1,12 +1,16 @@
-from app.infrastructure.database.connection_sqlserver import SessionLocal
+from typing import AsyncGenerator
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.infrastructure.database.connection_sqlserver import AsyncSessionLocal
 
-
-def get_db():
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
-    Dependencia para obtener sesión de base de datos
+    Dependency que entrega una sesión asíncrona de base de datos.
     """
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        # El context manager 'async with' cierra la sesión automáticamente

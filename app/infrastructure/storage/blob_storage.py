@@ -76,7 +76,7 @@ async def upload_audio_to_blob_async(local_path: str, blob_subfolder: str = "Aud
         # solo para extraer credenciales, O confiar en que Config tiene lo necesario.
         # Para simplificar y evitar doble dependencia, asumiremos que la connection string es válida.
         
-        # Truco: Usamos las propiedades del cliente asíncrono que ya tenemos instanciado
+        # Truco: Usamos las propiedades del cliente asíncrono que ya tenemos instanciado.
         account_name = blob_service_client.account_name
         account_key = blob_service_client.credential.account_key
 

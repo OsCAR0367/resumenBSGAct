@@ -64,7 +64,7 @@ Output Format:
 Begin with an introductory paragraph for the General Summary of the Session.
  
 Use a clear hierarchical structure with numbered subheadings (2.x) for the Detailed Development of Topics.
- 
+
 For each topic, use delineated subheadings for Conceptual Development, Practical Examples, and Relevance and Application.
  
 Conclude with a final section, Activities or Assigned Tasks, presented as a concise, clear list.
@@ -100,6 +100,7 @@ The output must consist only of the summary according to these instructions; do 
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant."},
                     {"role": "user", "content": prompt}
+                    
                 ],
                 max_tokens=16384,
                 temperature=0.0

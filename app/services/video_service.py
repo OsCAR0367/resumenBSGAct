@@ -1,10 +1,11 @@
 import os
+import logging
 from dotenv import load_dotenv
 
 from app.infrastructure.video.vimeo_downloader import download_video_vimeo_async
 from app.schemas.video_schema import VideoResponse
-from app.core.logging_config import logger
 
+logger = logging.getLogger(__name__)
 load_dotenv()
 
 class VideoService:
