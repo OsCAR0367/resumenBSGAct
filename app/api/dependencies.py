@@ -1,6 +1,6 @@
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.infrastructure.database.connection_sqlserver import AsyncSessionLocal
+from app.infrastructure.db_sql_server.sql_server_client_async import AsyncSessionLocal
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """

@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-# Dependencia de BD
+
 from app.api.dependencies import get_db
-# Esquemas y Servicios
 from app.schemas.workflow_schema import BigWorkflowRequest, BigWorkflowResponse
 from app.services.big_workflow_service import BigWorkflowService
 from app.infrastructure.repositories.procesamiento_repository import ProcesamientoRepository
@@ -19,10 +18,7 @@ async def run_workflow_up_to_summary(
     Retorna el resumen generado. Ideal para pruebas de integración.
     """
     try:
-        # 1. Crear registro inicial en BD (Síncrono -> Thread)
-        # Necesitamos instanciar el repo aquí o dentro del servicio.
-        # Para mantener el control, lo hacemos aquí o dejamos que el servicio lo maneje.
-        # Por simplicidad, delegamos la creación al repositorio directamente.
+
         repo = ProcesamientoRepository(db)
         
         # Convertimos Pydantic a dict
