@@ -1,16 +1,19 @@
 from typing import AsyncGenerator
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.infrastructure.db_sql_server.sql_server_client_async import AsyncSessionLocal
+from app.infrastructure.db_sql_server.sql_server_client_async import SQLServerClientAsync
+from app.core.setup_config import settings
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
+async def get_db() -> AsyncGenerator[SQLServerClientAsync, None]:
     """
-    Dependency que entrega una sesión asíncrona de base de datos.
+    Dependency que entrega una instancia conectada de SQLServerClientAsync.
+    Maneja la apertura y cierre de la conexión automáticamente.
     """
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        # El context manager 'async with' cierra la sesión automáticamente
+    # Usamos el método de tu clase settings para obtener el Connection String
+    dsn = settings.get_database_sql_server_url()
+    
+    # Instanciamos el cliente
+    client = SQLServerClientAsync(dsn=dsn)
+    
+    # Usamos el context manager asíncrono (__aenter__ / __aexit__) 
+    # que ya definiste en tu archivo estandarizado para conectar y desconectar.
+    async with client as db:
+        yield db

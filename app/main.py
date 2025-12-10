@@ -1,7 +1,7 @@
 import logging
 from fastapi import FastAPI
 from app.api.routes import big_workflow
-from app.daemons.config import Config
+from app.core.setup_config import settings
 
 # Configuración básica de logs
 logging.basicConfig(

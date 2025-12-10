@@ -2,8 +2,7 @@ import logging
 import asyncio
 import os
 from typing import Callable, Any
-from sqlalchemy.ext.asyncio import AsyncSession  # <--- Importante: AsyncSession
-
+from app.infrastructure.db_sql_server.sql_server_client_async import SQLServerClientAsync
 # Servicios de Dominio
 from app.services.video_service import VideoService
 from app.services.audio_service import AudioService
@@ -12,12 +11,12 @@ from app.services.summarization_service import SummarizationService
 
 # Repositorio y Config
 from app.infrastructure.repositories.procesamiento_repository import ProcesamientoRepository
-from app.daemons.config import Config
+from app.core.setup_config import Settings
 
 logger = logging.getLogger(__name__)
 
 class BigWorkflowService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: SQLServerClientAsync):
         self.db = db
         self.repo = ProcesamientoRepository(db)
         
@@ -98,7 +97,7 @@ class BigWorkflowService:
             async def _download_task():
                 resp = await self.video_service.download_video(
                     vimeo_url=data["UrlVideo"],
-                    download_directory=str(Config.INPUT_VIDEO_DIR) or "data/input/videos"
+                    download_directory=str(Settings.INPUT_VIDEO_DIR) or "data/input/videos"
                 )
                 return resp.file_path
 
@@ -115,7 +114,7 @@ class BigWorkflowService:
             async def _audio_task():
                 resp = await self.audio_service.extract_audio(
                     video_path=video_path,
-                    output_directory=str(Config.TEMP_AUDIOS_DIR) or "data/temp/audios"
+                    output_directory=str(Settings.TEMP_AUDIOS_DIR) or "data/temp/audios"
                 )
                 return resp.audio_path
 

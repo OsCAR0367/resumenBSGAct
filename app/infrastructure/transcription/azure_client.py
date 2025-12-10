@@ -2,7 +2,7 @@ import aiohttp
 import asyncio
 import logging
 import json
-from app.daemons.config import Config
+from app.core.setup_config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +14,8 @@ class AzureSpeechClient:
     Cliente asíncrono para la API Batch de Azure Speech-to-Text.
     """
     def __init__(self):
-        self.api_key = Config.AZURE_SPEECH_KEY
-        self.region = Config.AZURE_SPEECH_REGION
+        self.api_key = Settings.AZURE_SPEECH_KEY
+        self.region = Settings.AZURE_SPEECH_REGION
         self.api_version = "2024-11-15"
         
         # Limpieza de URL de región por si viene con protocolo

@@ -1,6 +1,6 @@
 import logging
 import os
-import aiofiles  # Para lectura de disco no bloqueante
+import aiofiles
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -8,7 +8,7 @@ from pathlib import Path
 from azure.storage.blob.aio import BlobServiceClient
 from azure.storage.blob import generate_blob_sas, BlobSasPermissions, ContentSettings
 
-from app.daemons.config import Config
+from app.core.setup_config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +30,8 @@ async def upload_audio_to_blob_async(local_path: str, blob_subfolder: str = "Aud
         raise FileNotFoundError(f"Archivo no encontrado para subir: {local_path}")
 
     # Validar configuración
-    conn_str = Config.AZURE_BLOB_CONNECTION_STRING
-    container_name = Config.AZURE_BLOB_CONTAINER
+    conn_str = Settings.AZURE_BLOB_CONNECTION_STRING
+    container_name = Settings.AZURE_BLOB_CONTAINER
     
     if not conn_str or not container_name:
         raise ValueError("Configuración de Azure Blob incompleta (CONNECTION_STRING o CONTAINER).")

@@ -1,5 +1,5 @@
 import logging
-from sqlalchemy.orm import Session
+from app.infrastructure.db_sql_server.sql_server_client_async import SQLServerClientAsync
 
 # Importamos la nueva función asíncrona de infraestructura
 from app.infrastructure.video.audio_extractor import extract_audio_async, AudioExtractionError
@@ -9,7 +9,7 @@ from app.schemas.audio_schema import AudioResponse
 logger = logging.getLogger(__name__)
 
 class AudioService:
-    def __init__(self, db: Session):
+    def __init__(self, db: SQLServerClientAsync):
         self.db = db
     
     async def extract_audio(self, video_path: str, output_directory: str) -> AudioResponse:

@@ -2,7 +2,7 @@ import logging
 import os
 import aiofiles
 from pathlib import Path
-from sqlalchemy.orm import Session
+from app.infrastructure.db_sql_server.sql_server_client_async import SQLServerClientAsync
 
 # Importamos la infraestructura
 from app.infrastructure.llm.openai_summarizer import OpenAISummarizer
@@ -12,7 +12,7 @@ from app.infrastructure.repositories.procesamiento_repository import Procesamien
 logger = logging.getLogger(__name__)
 
 class SummarizationService:
-    def __init__(self, db: Session):
+    def __init__(self, db: SQLServerClientAsync):
         self.db = db
         self.summarizer = OpenAISummarizer()
         self.repository = ProcesamientoRepository(db)

@@ -1,7 +1,7 @@
 import os
 import logging
 from openai import AsyncOpenAI
-from app.daemons.config import Config
+from app.core.setup_config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +10,7 @@ class OpenAISummarizer:
     Cliente asíncrono para generar resúmenes con OpenAI.
     """
     def __init__(self):
-        self.api_key = Config.OPENAI_API_KEY
+        self.api_key = Settings.OPENAI_API_KEY
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY no configurada.")
         

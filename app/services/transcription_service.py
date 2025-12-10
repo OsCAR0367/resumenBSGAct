@@ -1,7 +1,7 @@
 import logging
 import os
 from datetime import datetime
-from sqlalchemy.orm import Session
+from app.infrastructure.db_sql_server.sql_server_client_async import SQLServerClientAsync
 
 # Importamos nuestras nuevas infraestructuras asíncronas
 from app.infrastructure.storage.blob_storage import upload_audio_to_blob_async
@@ -10,7 +10,7 @@ from app.infrastructure.transcription.azure_client import AzureSpeechClient
 logger = logging.getLogger(__name__)
 
 class TranscriptionService:
-    def __init__(self, db: Session):
+    def __init__(self, db: SQLServerClientAsync):
         self.db = db
         self.speech_client = AzureSpeechClient()
 

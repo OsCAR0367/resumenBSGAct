@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from app.infrastructure.db_sql_server.sql_server_client_async import SQLServerClientAsync
 
 from app.api.dependencies import get_db
 from app.schemas.workflow_schema import BigWorkflowRequest, BigWorkflowResponse
@@ -11,7 +11,7 @@ router = APIRouter(tags=["Workflow"])
 @router.post("/big-workflow/test-summary", response_model=BigWorkflowResponse)
 async def run_workflow_up_to_summary(
     request: BigWorkflowRequest,
-    db: Session = Depends(get_db)
+    db: SQLServerClientAsync = Depends(get_db)
 ):
     """
     Ejecuta el flujo de procesamiento: Video -> Audio -> Transcripción -> Resumen.

@@ -231,7 +231,6 @@ class Settings:
         self.SQLSERVER_PORT = os.getenv("SQLSERVER_PORT", "1433")
 
 
-
     def get_database_sql_server_url(self):
         return (
             f"Driver={self.SQLSERVER_DRIVER};"
