@@ -7,7 +7,7 @@ class BigWorkflowRequest(BaseModel):
     """
     IdPEspecifico: int
     IdPEspecificoSesion: Optional[int] = None
-    TipoResumenGrabacionOnline: List[int] = []  # IDs de tipos (ej: 1=PDF, 2=Mapa, 3=Podcast)
+    TipoResumenGrabacionOnline: List[int] = [] 
     Sesion: str
     UrlVideo: str
     Usuario: str
@@ -19,7 +19,12 @@ class BigWorkflowResponse(BaseModel):
     """
     message: str
     sesion_id: int
+    status: str
+    
+
     video_path: Optional[str] = None
     transcript_preview: Optional[str] = None  
-    summary_preview: Optional[str] = None     
-    status: str
+    summary_preview: Optional[str] = None
+    
+    pdf_url: Optional[str] = None
+    podcast_url: Optional[str] = None

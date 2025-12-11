@@ -1,103 +1,109 @@
 import logging
 import os
 import re
-import aiohttp
-import aiofiles
-from aiohttp import ClientSession
+import requests
+import asyncio
 
-# Logger específico para este módulo
 logger = logging.getLogger(__name__)
 
-async def download_video_vimeo_async(
+
+def download_video_vimeo(vimeo_url: str, download_directory: str, access_token: str) -> str:
+    """
+    DESCARGA SÍNCRONA (FUNCIONA) - NO TOCAR
+    ---------------------------------------
+    Descarga un video de Vimeo usando requests.
+    Esta es la versión que ya sabes que el CDN de Vimeo acepta.
+    """
+
+    logger.info("Starting video download process for URL: %s", vimeo_url)
+    
+    try:
+        # Ensure the target directory exists
+        os.makedirs(download_directory, exist_ok=True)
+
+        # 1. Extract video ID from URL
+        video_id_match = re.search(r"vimeo\.com/(\d+)", vimeo_url)
+        if not video_id_match:
+            logger.error("Invalid Vimeo URL format. Could not extract video ID from: %s", vimeo_url)
+            raise ValueError("Invalid Vimeo URL format.")
+        video_id = video_id_match.group(1)
+        logger.info("Extracted Video ID: %s", video_id)
+
+        # 2. Fetch video metadata from Vimeo API
+        api_url = f"https://api.vimeo.com/videos/{video_id}"
+        headers = {"Authorization": f"Bearer {access_token}"}
         
-    vimeo_url: str, 
-    download_directory: str, 
-    access_token: str
+        logger.info("Fetching video metadata from Vimeo API for Video ID: %s", video_id)
+        response = requests.get(api_url, headers=headers)
+        response.raise_for_status()  # raise HTTPError for 4xx/5xx
+        video_data = response.json()
+        logger.info("Successfully fetched metadata for video: '%s'", video_data.get("name", "N/A"))
+
+        # 3. Find the best download link (we'll choose the smallest resolution for speed)
+        files = video_data.get('files', [])
+        if not files:
+            logger.error("No downloadable files found in API response for Video ID: %s", video_id)
+            raise IOError("No downloadable files found for this video.")
+        
+        # Choose the link with the smallest height (often SD quality)
+        download_info = min(files, key=lambda x: x.get('height', float('inf')))
+        download_link = download_info.get('link')
+        logger.info("Selected download link for quality: %sp", download_info.get('height'))
+
+        # 4. Prepare file path
+        video_title = video_data.get("name", video_id)
+        # Sanitize the title to create a valid filename
+        safe_title = re.sub(r'[^\w\s-]', '', video_title).strip()
+        safe_title = re.sub(r'[-\s]+', '_', safe_title)
+        file_name = f"{safe_title}.mp4"
+        file_path = os.path.join(download_directory, file_name)
+        logger.info("Video will be saved to: %s", file_path)
+
+        # 5. Download the video stream (CDN)
+        stream_response = requests.get(download_link, stream=True)
+        stream_response.raise_for_status()
+        
+        total_size_mb = int(stream_response.headers.get('content-length', 0)) / (1024 * 1024)
+        logger.info("Starting file download... Total size: %.2f MB", total_size_mb)
+
+        with open(file_path, "wb") as f:
+            for chunk in stream_response.iter_content(chunk_size=8192):
+                if chunk:  # filter out keep-alive chunks
+                    f.write(chunk)
+        
+        logger.info("Successfully downloaded video to: %s", file_path)
+        return file_path
+
+    except requests.exceptions.RequestException as e:
+        logger.error("A network or API error occurred for URL %s: %s", vimeo_url, e, exc_info=True)
+        raise  # Re-raise the original exception
+    except (IOError, ValueError, Exception) as e:
+        logger.error("An error occurred during the download process for URL %s: %s", vimeo_url, e, exc_info=True)
+        raise  # Re-raise the original exception
+
+
+async def download_video_vimeo_async(
+    vimeo_url: str,
+    download_directory: str,
+    access_token: str,
 ) -> str:
     """
-    Descarga un video de Vimeo de manera nativa asíncrona usando aiohttp.
-    Maneja su propia ClientSession para asegurar limpieza de recursos.
-    
-    Args:
-        vimeo_url: URL completa del video.
-        download_directory: Ruta de la carpeta destino.
-        access_token: Token de API de Vimeo.
-        
-    Returns:
-        str: Ruta absoluta del archivo descargado.
+    ENVOLTORIO ASÍNCRONO
+    --------------------
+    Ejecuta la función síncrona `download_video_vimeo` en un thread del pool,
+    para no bloquear el event loop (FastAPI/uvicorn), pero reutilizando
+    EXACTAMENTE el comportamiento que ya funciona con Vimeo/CDN.
     """
 
-    # Asegurar directorio (operación rápida, safe síncrono)
-    os.makedirs(download_directory, exist_ok=True)
+    logger.info("Starting ASYNC wrapper for Vimeo download (run_in_executor) | URL: %s", vimeo_url)
 
-    # Context Manager para la sesión HTTP
-    # Esto es crucial: abre y cierra la conexión limpiamente
-    async with aiohttp.ClientSession() as session:
-        try:
-            # 1. Extraer ID del video
-            video_id_match = re.search(r"vimeo\.com/(\d+)", vimeo_url)
-            if not video_id_match:
-                raise ValueError(f"Formato de URL inválido: {vimeo_url}")
-            video_id = video_id_match.group(1)
+    loop = asyncio.get_running_loop()
 
-            # 2. Obtener Metadatos (API Call)
-            api_url = f"https://api.vimeo.com/videos/{video_id}"
-            headers = {"Authorization": f"Bearer {access_token}"}
-
-            async with session.get(api_url, headers=headers) as response:
-                if response.status != 200:
-                    text = await response.text()
-                    raise Exception(f"Error API Vimeo ({response.status}): {text}")
-                
-                video_data = await response.json()
-            
-            video_name = video_data.get("name", f"video_{video_id}")
-            logger.info(f"Metadatos recibidos: '{video_name}'")
-
-            # 3. Buscar enlace de descarga
-            files = video_data.get('files', [])
-            if not files:
-                raise IOError(f"No se encontraron archivos descargables para ID {video_id}. Verifique permisos del Token.")
-            
-            # Seleccionar resolución (menor altura para rapidez, o ajustar lógica si prefieres HD)
-            # Filtramos solo los que tienen 'link' y 'height' válidos
-            valid_files = [f for f in files if f.get('link') and f.get('height')]
-            if not valid_files:
-                raise IOError("Archivos encontrados pero sin enlaces válidos.")
-                
-            download_info = min(valid_files, key=lambda x: x.get('height', float('inf')))
-            download_link = download_info.get('link')
-            
-            # 4. Preparar nombre de archivo seguro
-            safe_title = re.sub(r'[^\w\s-]', '', video_name).strip()
-            safe_title = re.sub(r'[-\s]+', '_', safe_title)
-            file_name = f"{safe_title}.mp4"
-            file_path = os.path.join(download_directory, file_name)
-
-            # 5. Descarga Streaming (Chunked)
-            logger.info(f"Descargando stream desde: {download_link[:30]}...")
-            
-            async with session.get(download_link) as stream_response:
-                stream_response.raise_for_status()
-                
-                # Opcional: Log del tamaño
-                total_size = int(stream_response.headers.get('content-length', 0))
-                
-                async with aiofiles.open(file_path, 'wb') as f:
-                    # iter_chunked es la clave para no llenar la RAM
-                    async for chunk in stream_response.content.iter_chunked(8192):
-                        await f.write(chunk)
-            
-            logger.info(f"Descarga completada: {file_path} ({total_size / (1024*1024):.2f} MB)")
-            return file_path
-
-        except aiohttp.ClientError as e:
-            logger.error(f"Error de red aiohttp: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Error general en descarga: {e}")
-            # Borrar archivo parcial si falló
-            if 'file_path' in locals() and os.path.exists(file_path):
-                os.remove(file_path)
-                logger.warning(f"Archivo parcial eliminado: {file_path}")
-            raise
+    # Importante: pasamos los argumentos posicionales exactamente igual que en la sync
+    return await loop.run_in_executor(
+        None,  # None => ThreadPoolExecutor por defecto
+        download_video_vimeo,
+        vimeo_url,
+        download_directory,
+        access_token,
+    )

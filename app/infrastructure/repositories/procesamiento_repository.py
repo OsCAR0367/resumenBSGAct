@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 from app.infrastructure.db_sql_server.sql_server_client_async import SQLServerClientAsync
 
 logger = logging.getLogger(__name__)
@@ -8,114 +7,81 @@ class ProcesamientoRepository:
     def __init__(self, db: SQLServerClientAsync):
         self.db = db
 
-    # -------------------------------------------------------------------------
-    # 1. Crear Sesión
-    # -------------------------------------------------------------------------
     async def create_sesion_online(self, data: dict) -> int:
         try:
-            # CAMBIO: Sintaxis ODBC con '?' en lugar de ':param'
-            # NOTA: aioodbc requiere que los parámetros se pasen en orden exacto.
             sql = """
                 DECLARE @new_id int;
                 EXEC ia.SP_TProcesamientoSesionOnline_Insertar
-                    @IdPEspecificoSesion = ?,
-                    @Sesion = ?,
-                    @Usuario = ?,
-                    @NewId = @new_id OUTPUT;
+                    @IdPEspecificoSesion = ?, @Sesion = ?, @UrlVideo = ?, @Usuario = ?, @NewId = @new_id OUTPUT;
                 SELECT @new_id as Id;
             """
-            
             params = [
                 data.get("IdPEspecificoSesion"), 
                 data.get("Sesion", "Sesion Default"),
+                data.get("UrlVideo", ""),
                 data.get("Usuario", "System")
             ]
-
-            # Usamos fetch_one porque esperamos el 'SELECT @new_id' del final
             row = await self.db.fetch_one(sql, params)
-            
-            # Tu cliente devuelve un diccionario {col: val}
-            if row and row.get("Id"):
-                return row["Id"]
-                
-            # Fallback por si acaso devuelve tupla o el nombre difiere
-            if row: 
-                return list(row.values())[0]
-                
-            raise ValueError("SP de Sesión no retornó ID")
-
+            if row: return int(list(row.values())[0])
+            raise ValueError("SP no retornó ID")
         except Exception as e:
             logger.error(f"Error creando sesión: {e}")
             raise e
 
-    # -------------------------------------------------------------------------
-    # 2. Crear Detalle de Etapa
-    # -------------------------------------------------------------------------
     async def create_detalle_etapa(self, sesion_id: int, etapa_id: int, usuario: str = "System") -> int:
         try:
             sql = """
                 DECLARE @out int;
                 EXEC ia.SP_TDetalleProcesamientoSesionOnline_Insertar
-                    @IdProcesamientoSesionOnline = ?,
-                    @IdEtapaProcesamientoSesion = ?,
-                    @Usuario = ?,
-                    @IdDetalleSalida = @out OUTPUT;
+                    @IdProcesamientoSesionOnline = ?, @IdEtapaProcesamientoSesion = ?, @Usuario = ?, @IdDetalleSalida = @out OUTPUT;
                 SELECT @out as Id;
             """
-            params = [sesion_id, etapa_id, usuario]
-            
-            row = await self.db.fetch_one(sql, params)
-            
-            if row and row.get("Id"):
-                return row["Id"]
-            if row: 
-                return list(row.values())[0]
-                
-            raise ValueError("Error creando detalle etapa")
-
+            row = await self.db.fetch_one(sql, [sesion_id, etapa_id, usuario])
+            if row: return int(list(row.values())[0])
+            raise ValueError("Error creando detalle")
         except Exception as e:
-            logger.error(f"Error creando detalle etapa: {e}")
+            logger.error(f"Error creando detalle: {e}")
             raise e
 
-    # -------------------------------------------------------------------------
-    # 3. Actualizar Estado de Detalle
-    # -------------------------------------------------------------------------
     async def update_detalle_estado(self, detalle_id: int, estado_id: int, resultado: str, nro_errores: int = 0, usuario: str = "System"):
+        """
+        Este es el método genérico. 'resultado' guardará el Texto del Resumen, 
+        el Guion o lo que retorne la etapa.
+        """
         try:
             sql = """
                 EXEC ia.SP_TDetalleProcesamientoSesionOnline_ActualizarEstado
-                    @IdDetalleProcesamiento = ?,
-                    @IdEstadoNuevo = ?,
-                    @Resultado = ?,
-                    @NroErrores = ?,
-                    @Usuario = ?
+                    @IdDetalleProcesamiento = ?, @IdEstadoNuevo = ?, @Resultado = ?, @NroErrores = ?, @Usuario = ?
             """
-            params = [detalle_id, estado_id, resultado, nro_errores, usuario]
-            
-            # Usamos execute_non_query para operaciones sin retorno de filas
-            await self.db.execute_non_query(sql, params)
-            
+            # Nos aseguramos que resultado sea string
+            res_str = str(resultado) if resultado is not None else ""
+            await self.db.execute_non_query(sql, [detalle_id, estado_id, res_str, nro_errores, usuario])
         except Exception as e:
             logger.error(f"Error actualizando estado: {e}")
             raise e
 
-    # -------------------------------------------------------------------------
-    # 4. Actualizar Resumen
-    # -------------------------------------------------------------------------
-    async def update_summarization(self, sesion_id: int, success: bool, summary_text: str):
+    async def insert_tipo_generar(self, sesion_id: int, tipo_id: int) -> int:
         try:
             sql = """
-                EXEC ia.SP_TProcesamientoSesionOnline_ActualizarResumen
-                    @Id = ?,
-                    @Resumen = ?,
-                    @TextoResumen = ?
+                DECLARE @out int;
+                EXEC ia.SP_TProcesamientoTipoGenerar_Insertar
+                    @IdProcesamientoSesionOnline = ?, @IdResumenGrabacionOnline = ?, @Usuario = 'System', @NewId = @out OUTPUT;
+                SELECT @out as Id;
             """
-            # SQL Server BIT: 1 o 0
-            flag = 1 if success else 0
-            params = [sesion_id, flag, summary_text]
-            
-            await self.db.execute_non_query(sql, params)
-            
+            row = await self.db.fetch_one(sql, [sesion_id, tipo_id])
+            if row: return int(list(row.values())[0])
+            return 0
         except Exception as e:
-            logger.error(f"Error actualizando resumen: {e}")
+            logger.error(f"Error insertando tipo generar: {e}")
+            raise e
+
+    async def update_tipo_generar(self, tipo_generar_id: int, url: str, realizado: bool):
+        try:
+            sql = """
+                EXEC ia.SP_TProcesamientoTipoGenerar_ActualizarTipoGenerar
+                    @Id = ?, @RegistroUrl = ?, @Usuario = 'System'
+            """
+            await self.db.execute_non_query(sql, [tipo_generar_id, url])
+        except Exception as e:
+            logger.error(f"Error actualizando entregable: {e}")
             raise e

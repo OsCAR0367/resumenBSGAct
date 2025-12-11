@@ -3,15 +3,19 @@ import asyncio
 import os
 from typing import Callable, Any
 from app.infrastructure.db_sql_server.sql_server_client_async import SQLServerClientAsync
+
 # Servicios de Dominio
 from app.services.video_service import VideoService
 from app.services.audio_service import AudioService
 from app.services.transcription_service import TranscriptionService
 from app.services.summarization_service import SummarizationService
+# --- IMPORTAMOS LOS NUEVOS SERVICIOS ---
+from app.services.study_guide_service import StudyGuideService
+from app.services.podcast_service import PodcastService
 
 # Repositorio y Config
 from app.infrastructure.repositories.procesamiento_repository import ProcesamientoRepository
-from app.core.setup_config import Settings
+from app.core.setup_config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -25,67 +29,52 @@ class BigWorkflowService:
         self.audio_service = AudioService(db)
         self.transcription_service = TranscriptionService(db)
         self.summarization_service = SummarizationService(db)
+        # --- INICIALIZAR NUEVOS SERVICIOS ---
+        self.study_guide_service = StudyGuideService(db)
+        self.podcast_service = PodcastService(db)
 
-    async def _run_step_with_retry(
-        self, 
-        sesion_id: int, 
-        stage_id: int, 
-        func: Callable, 
-        success_message: str
-    ) -> Any:
+    async def _run_step_with_retry(self, sesion_id, stage_id, func, success_msg_log):
         """
-        Ejecuta una etapa con lógica de reintentos de forma nativa ASÍNCRONA.
+        Ejecuta la etapa y guarda el RESULTADO (texto/url) en la BD dinámicamente.
         """
-        # 1. Crear registro inicial (Estado 2: En Proceso) - AWAIT DIRECTO
+        # 1. Crear registro inicial en BD
         detalle_id = await self.repo.create_detalle_etapa(sesion_id, stage_id)
         
-        errores_count = 0
-        max_retries = 3
+        try:
+            logger.info(f"Iniciando etapa {stage_id}...")
+            
+            # 2. Ejecutar la lógica de negocio (devuelve texto, url, etc.)
+            result_data = await func()
+            
+            # 3. Guardar el RESULTADO REAL en la BD
+            # Si es None, guardamos un mensaje por defecto
+            content_to_save = str(result_data) if result_data else "Completado."
+            
+            # Actualizamos estado a 3 (Completado)
+            await self.repo.update_detalle_estado(
+                detalle_id, 
+                3, 
+                content_to_save, 
+                0 
+            )
+            logger.info(success_msg_log)
+            return result_data
 
-        while errores_count < max_retries:
-            try:
-                # Intentar ejecutar la función de servicio
-                logger.info(f"Ejecutando etapa {stage_id} (Intento {errores_count + 1}/{max_retries})...")
-                result = await func()
-                
-                # ÉXITO: Actualizar a Estado 3 (Completado) 
-                await self.repo.update_detalle_estado(
-                    detalle_id, 
-                    3, # Completado
-                    success_message, 
-                    errores_count 
-                )
-                return result
-
-            except Exception as e:
-                errores_count += 1
-                logger.warning(f"Fallo en etapa {stage_id} (Intento {errores_count}): {str(e)}")
-
-                if errores_count < max_retries:
-                    # REINTENTO: Mantenemos Estado 2 (En Proceso) 
-                    await self.repo.update_detalle_estado(
-                        detalle_id,
-                        2, # En Proceso
-                        f"Reintentando ejecución... ({errores_count}/{max_retries})",
-                        errores_count
-                    )
-                    # Espera no bloqueante
-                    await asyncio.sleep(errores_count)
-                else:
-                    # FALLO FINAL: Estado 4 (Error) 
-                    logger.error(f"Etapa {stage_id} falló definitivamente tras {max_retries} intentos.")
-                    
-                    await self.repo.update_detalle_estado(
-                        detalle_id,
-                        4, # Error
-                        f"Fallo crítico: {str(e)}", 
-                        errores_count
-                    )
-                    raise e
-
+        except Exception as e:
+            logger.error(f"Fallo en etapa {stage_id}: {e}")
+            # Actualizamos estado a 4 (Error)
+            await self.repo.update_detalle_estado(
+                detalle_id,
+                4, 
+                f"Error: {str(e)}", 
+                1
+            )
+            raise e
+        
     async def orchestrate_up_to_summary(self, sesion_id: int, data: dict) -> dict:
         """
-        Orquesta el flujo paso a paso usando los servicios asíncronos.
+        Orquesta el flujo completo: Video -> Audio -> Transcripción -> Resumen
+        Y opcionalmente -> PDF y/o Podcast según 'TipoResumenGrabacionOnline'.
         """
         logger.info(f"--- INICIO WORKFLOW (Nativo Async) | Sesión ID: {sesion_id} ---")
         video_path = None
@@ -97,13 +86,13 @@ class BigWorkflowService:
             async def _download_task():
                 resp = await self.video_service.download_video(
                     vimeo_url=data["UrlVideo"],
-                    download_directory=str(Settings.INPUT_VIDEO_DIR) or "data/input/videos"
+                    download_directory=str(settings.INPUT_VIDEO_DIR)
                 )
                 return resp.file_path
 
             video_path = await self._run_step_with_retry(
                 sesion_id, 
-                1, # Descarga
+                1, 
                 _download_task, 
                 "Video descargado correctamente"
             )
@@ -114,13 +103,13 @@ class BigWorkflowService:
             async def _audio_task():
                 resp = await self.audio_service.extract_audio(
                     video_path=video_path,
-                    output_directory=str(Settings.TEMP_AUDIOS_DIR) or "data/temp/audios"
+                    output_directory=str(settings.TEMP_AUDIOS_DIR)
                 )
                 return resp.audio_path
 
             audio_path = await self._run_step_with_retry(
                 sesion_id,
-                2, # Audio
+                2, 
                 _audio_task,
                 "Audio extraído correctamente"
             )
@@ -139,7 +128,7 @@ class BigWorkflowService:
 
             transcript_text = await self._run_step_with_retry(
                 sesion_id,
-                3, # Transcripción
+                3, 
                 _transcribe_task,
                 "Transcripción completada"
             )
@@ -148,30 +137,104 @@ class BigWorkflowService:
             # PASO 4: Resumen
             # =================================================================
             async def _summary_task():
-                return await self.summarization_service.generate_and_save_summary(
-                    session_id=sesion_id,
-                    transcription_text=transcript_text
-                )
+                # generate_summary_only retorna el texto sin guardar en BD (lo hace el orquestador)
+                return await self.summarization_service.generate_summary_only(transcript_text)
 
             summary_text = await self._run_step_with_retry(
-                sesion_id,
-                4, # Resumen
-                _summary_task,
-                "Resumen generado exitosamente"
+                sesion_id, 
+                4, 
+                _summary_task, 
+                "Resumen generado y guardado."
             )
 
+            # =================================================================
+            # PASOS OPCIONALES (PDF / PODCAST)
+            # =================================================================
+            
+            # Obtenemos la lista de tipos solicitados [1, 3, etc]
+            tipos_solicitados = data.get("TipoResumenGrabacionOnline", [])
+            
+            # Inicializamos variables para capturar las URLs
+            pdf_url_result = None
+            podcast_url_result = None
+
+            # --- ETAPA 5: GENERACIÓN DE PDF (Si ID 1 está en la lista) ---
+            if 1 in tipos_solicitados:
+                async def _pdf_task():
+                    # Usamos un valor identificador opcional o 0 para el nombre del archivo
+                    pe_sesion_val = data.get("IdPEspecificoSesion", 0)
+                    
+                    # Llamamos al servicio que genera, sube a Azure y devuelve la URL
+                    return await self.study_guide_service.generate_and_upload_pdf(
+                        sesion_id=sesion_id,
+                        summary_text=summary_text,
+                        pe_sesion_val=pe_sesion_val
+                    )
+
+                # Ejecutamos la tarea y CAPTURAMOS la URL
+                pdf_url_result = await self._run_step_with_retry(
+                    sesion_id,
+                    5, # ID Etapa: GeneracionPDF
+                    _pdf_task,
+                    "PDF generado y subido a Azure"
+                )
+            else:
+                logger.info("Paso PDF (Tipo 1) no solicitado.")
+
+            # --- ETAPAS 6 y 7: PODCAST (Si ID 3 está en la lista) ---
+            if 3 in tipos_solicitados:
+                # Sub-Paso 6: Guion (Intermedio)
+                async def _script_task():
+                    return await self.podcast_service.create_podcast_script(
+                        sesion_id=sesion_id, 
+                        summary_text=summary_text
+                    )
+
+                script_text = await self._run_step_with_retry(
+                    sesion_id,
+                    6, # ID Etapa: GeneracionGuionPodcast
+                    _script_task,
+                    "Guion de podcast generado"
+                )
+
+                # Sub-Paso 7: Audio Podcast (Final)
+                async def _podcast_audio_task():
+                    pe_sesion_val = data.get("IdPEspecificoSesion", 0)
+                    # Este servicio genera audio, sube a Azure y retorna la URL
+                    return await self.podcast_service.create_podcast_audio(
+                        sesion_id=sesion_id,
+                        script_text=script_text,
+                        pe_sesion_val=pe_sesion_val
+                    )
+
+                # Ejecutamos la tarea y CAPTURAMOS la URL
+                podcast_url_result = await self._run_step_with_retry(
+                    sesion_id,
+                    7, # ID Etapa: GeneracionAudioPodcast
+                    _podcast_audio_task,
+                    "Audio Podcast generado y subido a Azure"
+                )
+            else:
+                logger.info("Paso Podcast (Tipo 3) no solicitado.")
+
+            # --- RETORNO FINAL CON URLs ---
             return {
-                "message": "Workflow completado",
+                "message": "Workflow completado exitosamente",
                 "sesion_id": sesion_id,
                 "status": "success",
-                "summary_preview": summary_text[:100] + "..."
+                "summary_preview": summary_text[:100] + "...",
+                # Devolvemos las URLs generadas (serán None si no se solicitaron)
+                "pdf_url": pdf_url_result,
+                "podcast_url": podcast_url_result
             }
 
         except Exception as e:
-            # El error ya fue registrado en BD por _run_step_with_retry
+            # El error ya se registró en la BD dentro de _run_step_with_retry
+            # Aquí solo relanzamos para que el endpoint responda 500
             raise e
             
         finally:
+            # Limpieza del video original
             if video_path and os.path.exists(video_path):
                 try:
                     os.remove(video_path)

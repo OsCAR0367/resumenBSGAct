@@ -2,7 +2,7 @@ import aiohttp
 import asyncio
 import logging
 import json
-from app.core.setup_config import Settings
+from app.core.setup_config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +14,8 @@ class AzureSpeechClient:
     Cliente asíncrono para la API Batch de Azure Speech-to-Text.
     """
     def __init__(self):
-        self.api_key = Settings.AZURE_SPEECH_KEY
-        self.region = Settings.AZURE_SPEECH_REGION
+        self.api_key = settings.AZURE_SPEECH_KEY
+        self.region = settings.AZURE_SPEECH_REGION
         self.api_version = "2024-11-15"
         
         # Limpieza de URL de región por si viene con protocolo
@@ -51,7 +51,7 @@ class AzureSpeechClient:
                 # Ajustar URL para polling (quitar :submit)
                 return location.replace(":submit/", "/")
 
-    async def poll_until_complete(self, polling_url: str, interval: int = 5) -> dict:
+    async def poll_until_complete(self, polling_url: str, interval: int = 130) -> dict:
         """Consulta el estado cada 'interval' segundos sin bloquear."""
         headers = {"Ocp-Apim-Subscription-Key": self.api_key}
         

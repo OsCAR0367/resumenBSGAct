@@ -1,3 +1,4 @@
 .env
 /credentials
 __pycache__/
+data/input/videos

@@ -1,6 +1,6 @@
 import logging
 from fastapi import FastAPI
-from app.api.routes import big_workflow
+from app.api.routes import batch_processing, big_workflow
 from app.core.setup_config import settings
 
 # Configuración básica de logs
@@ -17,6 +17,7 @@ app = FastAPI(
 
 # Registrar Routers
 app.include_router(big_workflow.router, prefix="/api/v1")
+app.include_router(batch_processing.router, prefix="/api/v1")
 
 @app.get("/")
 async def root():

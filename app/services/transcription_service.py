@@ -4,7 +4,7 @@ from datetime import datetime
 from app.infrastructure.db_sql_server.sql_server_client_async import SQLServerClientAsync
 
 # Importamos nuestras nuevas infraestructuras asíncronas
-from app.infrastructure.storage.blob_storage import upload_audio_to_blob_async
+from app.infrastructure.storage.blob_storage import upload_file_to_blob_async
 from app.infrastructure.transcription.azure_client import AzureSpeechClient
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ class TranscriptionService:
         try:
             # 1. Subir a Blob Storage
             logger.info(f"Servicio: Subiendo audio para sesión {session_id}...")
-            sas_url = await upload_audio_to_blob_async(
+            sas_url = await upload_file_to_blob_async(
                 local_path=audio_path, 
                 blob_subfolder="AudioSesion"
             )
@@ -41,7 +41,7 @@ class TranscriptionService:
             
             # 3. Esperar resultado (Polling inteligente)
             logger.info("Servicio: Esperando finalización (Polling)...")
-            job_result = await self.speech_client.poll_until_complete(polling_url, interval=5)
+            job_result = await self.speech_client.poll_until_complete(polling_url, interval=130)
             
             # 4. Obtener texto
             transcript_text = await self.speech_client.fetch_transcript_text(job_result)
