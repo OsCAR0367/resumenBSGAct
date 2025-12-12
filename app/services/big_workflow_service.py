@@ -4,16 +4,13 @@ import os
 from typing import Callable, Any
 from app.infrastructure.db_sql_server.sql_server_client_async import SQLServerClientAsync
 
-# Servicios de Dominio
 from app.services.video_service import VideoService
 from app.services.audio_service import AudioService
 from app.services.transcription_service import TranscriptionService
 from app.services.summarization_service import SummarizationService
-# --- IMPORTAMOS LOS NUEVOS SERVICIOS ---
 from app.services.study_guide_service import StudyGuideService
 from app.services.podcast_service import PodcastService
 
-# Repositorio y Config
 from app.infrastructure.repositories.procesamiento_repository import ProcesamientoRepository
 from app.core.setup_config import settings
 
@@ -29,7 +26,6 @@ class BigWorkflowService:
         self.audio_service = AudioService(db)
         self.transcription_service = TranscriptionService(db)
         self.summarization_service = SummarizationService(db)
-        # --- INICIALIZAR NUEVOS SERVICIOS ---
         self.study_guide_service = StudyGuideService(db)
         self.podcast_service = PodcastService(db)
 
@@ -42,6 +38,13 @@ class BigWorkflowService:
         
         try:
             logger.info(f"Iniciando etapa {stage_id}...")
+
+            await self.repo.update_detalle_estado(
+                detalle_id, 
+                2,  
+                "Procesando...", 
+                0 
+            )
             
             # 2. Ejecutar la lógica de negocio (devuelve texto, url, etc.)
             result_data = await func()
@@ -84,11 +87,13 @@ class BigWorkflowService:
             # PASO 1: Descarga de Video
             # =================================================================
             async def _download_task():
-                resp = await self.video_service.download_video(
+                video_file_path = await self.video_service.download_video(
                     vimeo_url=data["UrlVideo"],
-                    download_directory=str(settings.INPUT_VIDEO_DIR)
+                    download_directory=str(settings.INPUT_VIDEO_DIR),
+                    filename_prefix=str(sesion_id)
                 )
-                return resp.file_path
+
+                return video_file_path
 
             video_path = await self._run_step_with_retry(
                 sesion_id, 

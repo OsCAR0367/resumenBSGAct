@@ -1,60 +1,106 @@
 import logging
+import asyncio
 import os
 from datetime import datetime
 from app.infrastructure.db_sql_server.sql_server_client_async import SQLServerClientAsync
+from app.core.setup_config import settings
 
-# Importamos nuestras nuevas infraestructuras asíncronas
 from app.infrastructure.storage.blob_storage import upload_file_to_blob_async
-from app.infrastructure.transcription.azure_client import AzureSpeechClient
+
+from app.infrastructure.client.azure_speech_client import AzureSpeechClient
 
 logger = logging.getLogger(__name__)
 
 class TranscriptionService:
     def __init__(self, db: SQLServerClientAsync):
         self.db = db
-        self.speech_client = AzureSpeechClient()
+        self.azure_client = AzureSpeechClient(
+            subscription_key=settings.AZURE_SPEECH_KEY,
+            region=settings.AZURE_SPEECH_REGION
+        )
 
     async def transcribe_audio_file(self, audio_path: str, session_id: int = 0) -> str:
         """
-        Flujo completo de transcripción asíncrona:
-        1. Subir audio a Blob (Async Thread) -> SAS URL
-        2. Enviar Job a Azure (Async IO)
-        3. Polling (Async IO)
-        4. Descargar texto (Async IO)
-        
-        Retorna:
-            str: El texto transcrito.
+        Orquesta el flujo completo:
+        1. Subida a Blob Storage (obtiene SAS URL).
+        2. Envío a Azure Speech (Batch API).
+        3. Polling de estado (Cada 100s).
+        4. Descarga y limpieza.
         """
         try:
-            # 1. Subir a Blob Storage
+            # -----------------------------------------------------------
+            # PASO 1: Subir a Blob Storage
+            # -----------------------------------------------------------
             logger.info(f"Servicio: Subiendo audio para sesión {session_id}...")
+            
             sas_url = await upload_file_to_blob_async(
                 local_path=audio_path, 
-                blob_subfolder="AudioSesion"
+                blob_subfolder=settings.AZURE_BLOB_SUBFOLDER_AUDIOSESION 
             )
             
-            # 2. Enviar trabajo de transcripción
+            # -----------------------------------------------------------
+            # PASO 2: Iniciar Transcripción
+            # -----------------------------------------------------------
             job_name = f"sesion_{session_id}_{datetime.now().strftime('%Y%m%d%H%M')}"
-            logger.info(f"Servicio: Enviando trabajo a Azure Speech: {job_name}")
             
-            polling_url = await self.speech_client.submit_job(sas_url, job_name)
+            job_response = await self.azure_client.start_transcription(
+                audio_urls=[sas_url],
+                job_name=job_name,
+                locale="es-PE", 
+                diarization_enabled=True
+            )
             
-            # 3. Esperar resultado (Polling inteligente)
-            logger.info("Servicio: Esperando finalización (Polling)...")
-            job_result = await self.speech_client.poll_until_complete(polling_url, interval=130)
+            # Extraer ID del trabajo
+            job_self_url = job_response["self"]
+            transcription_id = job_self_url.split("/")[-1]
             
-            # 4. Obtener texto
-            transcript_text = await self.speech_client.fetch_transcript_text(job_result)
+            logger.info(f"Servicio: Job creado ID: {transcription_id}. Iniciando espera (Polling)...")
+
+            # -----------------------------------------------------------
+            # PASO 3: Polling (Esperar a que termine)
+            # -----------------------------------------------------------
+            while True:
+                # Consultamos estado
+                status_data = await self.azure_client.get_transcription_job(transcription_id)
+                status = status_data["status"]
+                
+                if status == "Succeeded":
+                    logger.info(f"Azure: Transcripción finalizada correctamente ({status}).")
+                    break
+                elif status == "Failed":
+                    error_msg = status_data.get("properties", {}).get("error", {}).get("message", "Error desconocido")
+                    raise Exception(f"Azure Speech falló: {error_msg}")
+                
+                logger.info(f"Azure: Estado '{status}'. Esperando 100 segundos...")
+                await asyncio.sleep(100) 
+
+            # -----------------------------------------------------------
+            # PASO 4: Obtener Resultados y Texto
+            # -----------------------------------------------------------
+            files_response = await self.azure_client.get_transcription_files(transcription_id)
             
-            logger.info("Servicio: Transcripción obtenida exitosamente.")
+            transcript_json_url = None
+            for f in files_response["values"]:
+                if f["kind"] == "Transcription":
+                    transcript_json_url = f["links"]["contentUrl"]
+                    break
             
-            # (Opcional) Guardar en disco local si se requiere respaldo
-            self._save_local_backup(transcript_text, session_id)
+            if not transcript_json_url:
+                raise Exception("Azure terminó pero no generó archivo de transcripción.")
+
+            full_json = await self.azure_client.download_transcript_content(transcript_json_url)
             
-            # (Opcional) Actualizar BD usando self.db
-            # self.repo.update_transcription(session_id, transcript_text)
+            final_text = full_json["combinedRecognizedPhrases"][0]["display"]
             
-            return transcript_text
+            logger.info("Servicio: Texto descargado exitosamente.")
+
+            # -----------------------------------------------------------
+            # PASO 5: Limpieza y Backup
+            # -----------------------------------------------------------
+            await self.azure_client.delete_transcription(transcription_id)
+            self._save_local_backup(final_text, session_id)
+            
+            return final_text
 
         except Exception as e:
             logger.error(f"Error en TranscriptionService: {str(e)}")
@@ -63,7 +109,7 @@ class TranscriptionService:
     def _save_local_backup(self, text: str, session_id: int):
         """Helper simple para guardar un backup del texto."""
         try:
-            output_dir = "data/output/transcriptions"
+            output_dir = str(settings.TRANSCRIPTIONS_OUTPUT_DIR)
             os.makedirs(output_dir, exist_ok=True)
             path = os.path.join(output_dir, f"transcription_{session_id}.txt")
             with open(path, "w", encoding="utf-8") as f:

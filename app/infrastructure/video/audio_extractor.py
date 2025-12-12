@@ -70,7 +70,6 @@ async def extract_audio_async(video_path: str, output_directory: str = None) -> 
 
     try:
         # 3. Ejecutar la función síncrona en un hilo aparte para no bloquear el servidor
-        # Esto es clave: asyncio.to_thread maneja la magia de hacerlo async sin complicar subprocess
         await asyncio.to_thread(_extract_audio_sync, str(video_p), output_path_str, ffmpeg_cmd)
 
         logger.info(f"Extracción completada: {output_path_str}")

@@ -32,7 +32,8 @@ class ApiClientAsync:
         self.client = httpx.AsyncClient(
             timeout=self.timeout,
             verify=self.verify_ssl,
-            headers=self.default_headers
+            headers=self.default_headers,
+             follow_redirects=True,
         )
         return self
 
@@ -67,6 +68,7 @@ class ApiClientAsync:
             timeout=self.timeout,
             verify=self.verify_ssl,
             headers=self.default_headers,
+            follow_redirects=True,
             limits=httpx.Limits(
                 max_keepalive_connections=20,
                 max_connections=100

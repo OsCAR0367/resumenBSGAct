@@ -10,7 +10,6 @@ from app.core.setup_config import settings
 
 logger = logging.getLogger(__name__)
 
-# Configurar credenciales de Google si están definidas
 if settings.GOOGLE_APPLICATION_CREDENTIALS:
     os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = settings.GOOGLE_APPLICATION_CREDENTIALS
 
@@ -26,17 +25,55 @@ class PodcastGenerator:
         """
         logger.info("Generando guion con OpenAI...")
         prompt = f"""
-        Eres un experto en narraciones educativas.
-        Objetivo: Parafrasear el siguiente resumen en un guion de podcast fluido y profesional en Español Latinoamericano.
-        Estilo: Tipo audiolibro, informativo, directo. Evita frases como "en este resumen" o "a continuación".
-        Formato: Texto plano puro (sin markdown, sin guiones de diálogo, sin asteriscos).
-        
-        Resumen base:
-        {summary_text[:15000]} 
-        """
+You are an expert in educational narrations and STEM topics.
+ 
+Objective
+Paraphrase the provided document into a continuous, professional audiobook-style narrative in Latin American Spanish.
+ 
+Language
+Output language speech must be written in spanish latin american.
+ 
+Tone and voice
+- Use a professional, fluid, informative narrative.
+- Start with a brief, friendly welcome phrase such as: Welcome! In this study guide...
+- Maintain an expository style suitable for an audiobook.
+- Avoid first-person collective or process phrases (e.g., "We have seen," "We have developed," "Let's," "In this report we").
+- Do not include meta commentary about the document or the task.
+ 
+Formatting constraints (critical)
+- Plain text only.
+- No Markdown of any kind: no asterisks, underscores, tildes, backticks, hashes, blockquotes, headings, lists, tables, or code blocks.
+- Do not use the following characters anywhere in the output: * _ ~ ` # > - + = | [ ] {{ }} < > / \\ ^
+- Do not use emojis or decorative symbols.
+- Do not include quoted blocks or quotation marks around sentences.
+- Use simple paragraphs only; no enumerations or bullet points.
+- Prefer commas and full stops over parentheses; if the source uses parentheses, integrate their content into the sentence flow.
+ 
+Content handling
+- Fully understand the source, identify key ideas and critical details, and present them coherently as if giving an informative exposition.
+- Preserve all essential facts and details without altering meaning or omitting critical information.
+- Convert any lists, tables, headings, or emphasized text into plain sentences.
+- If the source includes formulas, LaTeX, or symbols, describe them in words instead of using symbolic notation.
+- If URLs or references appear, summarize their purpose in plain language without rendering links.
+ 
+Length and flow
+- Keep a length of 2,000 words for the audiobook and comparable to the original.
+- Ensure smooth pacing and coherence across paragraphs.
+ 
+Quality checks before returning
+- Remove or replace any disallowed characters listed above.
+- Ensure no Markdown, no lists, no headings, no code fences, and no quoted text remain.
+- Use standard sentence punctuation only (.,;:?! ¡¿) and normalize spacing.
+ 
+Output
+Return only the final narrative text as plain continuous paragraphs, with no labels, notes, or extra commentary.
+Text must be 2,000 words or more.
+ 
+This is the content to narrate: {summary_text}
+"""
         try:
             response = await self.openai_client.chat.completions.create(
-                model=settings.OPENAI_MODEL,
+                model="gpt-4.1",
                 messages=[{"role": "system", "content": prompt}],
                 temperature=0.5
             )

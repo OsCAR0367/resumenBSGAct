@@ -9,10 +9,9 @@ logger = logging.getLogger(__name__)
 
 def download_video_vimeo(vimeo_url: str, download_directory: str, access_token: str) -> str:
     """
-    DESCARGA SÍNCRONA (FUNCIONA) - NO TOCAR
+    DESCARGA SÍNCRONA 
     ---------------------------------------
     Descarga un video de Vimeo usando requests.
-    Esta es la versión que ya sabes que el CDN de Vimeo acepta.
     """
 
     logger.info("Starting video download process for URL: %s", vimeo_url)

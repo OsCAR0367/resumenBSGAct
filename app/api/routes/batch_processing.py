@@ -1,54 +1,47 @@
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from typing import List, Optional, Any
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 
-# Dependencias y Configuración
-from app.api.dependencies import get_db
-from app.infrastructure.db_sql_server.sql_server_client_async import SQLServerClientAsync
-
-# Servicio de Lotes
+# Importamos el servicio de procesamiento masivo
 from app.services.batch_manager_service import BatchManagerService
 
 router = APIRouter(tags=["Batch Processing"])
 
 # --- Esquema de Entrada (Input Schema) ---
-# Definimos aquí el modelo para validar los datos que entran
 class BigWorkflowRequest(BaseModel):
     IdPEspecifico: int
     IdPEspecificoSesion: int
     Sesion: str
     UrlVideo: str
     Usuario: str
-    # Lista opcional de enteros (ej: [1, 3] para PDF y Podcast)
     TipoResumenGrabacionOnline: Optional[List[int]] = []
 
-@router.post("/batch/start-process")
-async def start_batch_processing(
-    requests: List[BigWorkflowRequest], # FastAPI espera una LISTA de objetos JSON
-    background_tasks: BackgroundTasks,  # Magia de FastAPI para correr en segundo plano
-    db: SQLServerClientAsync = Depends(get_db)
+# --- Esquema de Respuesta (Para ver los resultados en Swagger) ---
+class BatchResultResponse(BaseModel):
+    total_processed: int
+    success: int
+    failed: int
+    results: List[Any] # Aquí vendrá el detalle de cada video (URLs, IDs, etc.)
+
+@router.post("/batch/start-process-sync", response_model=BatchResultResponse)
+async def start_batch_processing_sync(
+    requests: List[BigWorkflowRequest]
 ):
     """
-    Recibe una lista de videos y los procesa en lotes de 10 en fondo.
-    Responde inmediatamente "Procesamiento iniciado".
+    Recibe una lista de videos, los procesa y ESPERA a que terminen.
+    Devuelve el reporte completo con URLs y estados al finalizar.
+    
+    NOTA: Si envías muchos videos, esto puede tardar mucho y dar Timeout en el cliente.
     """
     if not requests:
         raise HTTPException(status_code=400, detail="La lista de videos está vacía.")
 
-    # Instanciamos el servicio gestor de lotes
-    service = BatchManagerService(db)
+    # Instanciamos el servicio (él crea su propia conexión a DB)
+    service = BatchManagerService()
     
-    # Convertimos los objetos Pydantic a diccionarios simples
-    # para que el servicio los entienda
+    # Convertimos los modelos Pydantic a una lista de diccionarios
     data_list = [req.dict() for req in requests]
 
-    # Lanzamos la tarea en Background (Fire and Forget)
-    # batch_size=10 para procesar de 10 en 10
-    background_tasks.add_task(service.process_batch_list, data_list, batch_size=10)
+    final_report = await service.process_batch_list(data_list, batch_size=10)
 
-    return {
-        "message": f"🚀 Procesamiento masivo iniciado para {len(data_list)} videos.",
-        "mode": "Background Async (Lotes Estrictos)",
-        "batch_size": 10,
-        "note": "El servidor procesará 10 videos, esperará a que terminen, y tomará los siguientes 10."
-    }
+    return final_report
